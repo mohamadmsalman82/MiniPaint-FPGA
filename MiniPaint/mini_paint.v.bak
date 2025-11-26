@@ -1,0 +1,508 @@
+module mini_paint(CLOCK_50, SW, KEY, PS2_CLK, PS2_DAT, LEDR, HEX2, HEX1, HEX0, VGA_R, VGA_G, VGA_B,
+                VGA_HS, VGA_VS, VGA_BLANK_N, VGA_SYNC_N, VGA_CLK);
+    
+    // specify the number of bits needed for an X (column) pixel coordinate on the VGA display
+    parameter nX = 10;
+    // specify the number of bits needed for a Y (row) pixel coordinate on the VGA display
+    parameter nY = 9;
+
+    // state codes for FSM that choses which object to draw at a given time
+    parameter A = 4'd0, B = 4'd1, C = 4'd2, D = 4'd3, Red = 4'd4, Orange = 4'd5, Yellow = 4'd6, 
+			Green = 4'd7, Blue = 4'd8, Purple = 4'd9, Black = 4'd10, White = 4'd11, Gray = 4'd12, 
+			Pen = 4'd13, Eraser = 4'd14, Fill = 4'd15;
+	
+	 parameter TOOL_PEN = 2'd0, TOOL_ERASE = 2'd1, TOOL_FILL = 2'd2;
+	
+	 parameter toolbarY = 11'd45;
+	 
+	 parameter CURSOR_SIZE = 9;
+	 
+	 /*Drawable Area*/
+	 parameter DRAW_X_MIN = 10'd10;    
+	 parameter DRAW_X_MAX = 10'd639;  
+	 parameter DRAW_Y_MIN = 9'd51;    
+	 parameter DRAW_Y_MAX = 9'd474;   
+	 
+	 
+    input CLOCK_50;    
+    input [9:0] SW;
+    input [3:0] KEY;
+	 
+	 inout PS2_CLK;
+	 inout PS2_DAT;
+
+
+    output [9:0] LEDR;
+    output [6:0] HEX2, HEX1, HEX0;
+    output [7:0] VGA_R;
+    output [7:0] VGA_G;
+    output [7:0] VGA_B;
+    output VGA_HS;
+    output VGA_VS;
+    output VGA_BLANK_N;
+    output VGA_SYNC_N;
+    output VGA_CLK;    
+    
+    wire [8:0] new_color, color;
+	 reg [8:0] top_color;
+    wire [nX-1:0] X;    // used to record the center of the box
+    wire [nY-1:0] Y;    // used to record the center of the box
+    wire [nY-1:0] new_size, size;
+    wire [nX-1:0] X0, XC;           // box offsets and counters
+    wire [nY-1:0] Y0, YC;
+    wire go;                        // used by FSM
+    reg write, Lxc, Lyc, Exc, Eyc;  // box control signals
+    reg [3:0] y_Q, Y_D;             // FSM
+	 wire Resetn;
+	 
+	 assign Resetn = KEY[0];
+    
+/********************************************************************************/
+/*                               Mouse handling                                 */
+/********************************************************************************/
+	 
+	 wire left_button;
+ 
+	 wire	signed [10:0]	cursor_x;
+	 wire	signed [10:0]	cursor_y;
+ 
+	 PS2_Demo demo1 (CLOCK_50, KEY, PS2_CLK, PS2_DAT, left_button, cursor_x,
+							cursor_y);
+	 
+    // use offsets to center the box on the VGA display
+    parameter X_OFFSET = 320;
+    parameter Y_OFFSET = 240;
+    assign X0 = cursor_x;
+    assign Y0 = cursor_y;
+    regn UX (X0, Resetn, 1'b1, CLOCK_50, X);
+        defparam UX.n = nX;
+    regn UY (Y0, Resetn, 1'b1, CLOCK_50, Y);
+        defparam UY.n = nY;
+
+/********************************************************************************/
+/*                             	Colour and Size                                 */
+/********************************************************************************/
+	 
+    assign new_color = SW[8:0];
+    regn UC (setcol ? top_color : new_color, Resetn, setcol | ~KEY[1], CLOCK_50, color); 
+        defparam UC.n = 9;
+    // set default box size to 1 x 1
+    assign new_size = size == {nY{1'b0}} ? {{nY-1{1'b0}},1'b1} : SW[nY-1:0];
+    regn UB (new_size, Resetn, ~KEY[2] | (size == {nY{1'b0}}), CLOCK_50, size); 
+        defparam UB.n = nY;
+
+    // these counter are used to generate pixel coordinates for the box
+    Up_count U1 ({nX{1'd0}}, CLOCK_50, Resetn, Lxc, Exc, XC);
+        defparam U1.n = nX;
+    Up_count U2 ({nY{1'd0}}, CLOCK_50, Resetn, Lyc, Eyc, YC);
+        defparam U2.n = nY;
+
+    assign LEDR[9:0] = 10'b0;
+
+    hex7seg H2 ({3'b0,size[8]}, HEX2);
+    hex7seg H1 (size[7:4], HEX1);
+    hex7seg H0 (size[3:0], HEX0);
+		
+/********************************************************************************/
+/*                             Toolbar & Draw FSM                               */
+/********************************************************************************/
+	 
+	 reg [1:0] tool_mode;
+	 reg setcol;
+    reg [10:0] cursor_y_sync;
+	 always @(posedge CLOCK_50) begin
+		cursor_y_sync <= cursor_y;  // Synchronize cursor_y with the clock
+	 end
+	 
+	 
+	 assign go = left_button && ~KEY[3];
+	 
+    // FSM state table
+    always @ (*)
+        case (y_Q)
+            A: begin
+					if (!go) Y_D = A; //first state determines what next state is
+					else if (cursor_y_sync > 11'd50 & cursor_y_sync < 11'd472 & cursor_x > 11'd10) Y_D = B;
+					else if (cursor_y_sync < 11'd50 & (cursor_x >= 11'd66) & cursor_x < 11'd108) Y_D = Red;
+               else if (cursor_y_sync < 11'd50 & (cursor_x >= 11'd108) & cursor_x < 11'd150) Y_D = Orange;
+               else if (cursor_y_sync < 11'd50 & (cursor_x >= 11'd150) & cursor_x < 11'd192) Y_D = Yellow;
+               else if (cursor_y_sync < 11'd50 & (cursor_x >= 11'd192) & cursor_x < 11'd234) Y_D = Green;
+               else if (cursor_y_sync < 11'd50 & (cursor_x >= 11'd234) & cursor_x < 11'd276) Y_D = Blue;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd276 & cursor_x < 11'd318) Y_D = Purple;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd318 & cursor_x < 11'd360) Y_D = Black;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd360 & cursor_x < 11'd402) Y_D = White;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd402 & cursor_x < 11'd444) Y_D = Gray;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd444 & cursor_x < 11'd486) Y_D = Pen;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd486 & cursor_x < 11'd538) Y_D = Eraser;
+               else if (cursor_y_sync < 11'd50 & cursor_x >= 11'd538 & cursor_x < 11'd572) Y_D = Fill;
+					end
+            B:  if (XC != size-1) Y_D = B;  // box x coordinate (column)
+                else Y_D = C;
+            C:  if (YC != size-1) Y_D = B;  // box y coordinate (row)
+                else Y_D = D;
+            D:  Y_D = A;
+				
+				default: Y_D = D;		
+        endcase
+    // FSM outputs
+    always @ (*)
+    begin
+        // default assignments
+        write = 1'b0; Lxc = 1'b0; Lyc = 1'b0; Exc = 1'b0; Eyc = 1'b0;  setcol = 0;
+        case (y_Q)
+            A:  begin Lxc = 1'b1; Lyc = 1'b1;  setcol = 0; end   // load (XC,YC) counter
+            B:  begin Exc = 1'b1; write = 1'b1; end // enable XC, write pixel
+            C:  begin Lxc = 1'b1; Eyc = 1'b1; end   // enable YC, load XC
+            D:  begin Lyc = 1'b1; setcol = 0; end    // load YC
+				Red: begin top_color = 9'b111000000; setcol = 1; write = 1'b0; end
+				Orange: begin top_color = 9'b111011000; setcol = 1; write = 1'b0; end
+				Yellow: begin top_color = 9'b111111000; setcol = 1; write = 1'b0; end
+				Green: begin top_color = 9'b000111000; setcol = 1; write = 1'b0; end
+				Blue: begin top_color = 9'b000000111; setcol = 1; write = 1'b0; end
+				Purple: begin top_color = 9'b111000111; setcol = 1; write = 1'b0; end
+				Black: begin top_color = 9'd0; setcol = 1; write = 1'b0; end
+				White: begin top_color = 9'b111111111; setcol = 1; write = 1'b0; end
+				Gray: begin top_color = 9'b100100100; setcol = 1; write = 1'b0; end
+				Pen: begin tool_mode = TOOL_PEN; write = 1'b0; end
+				Eraser: begin tool_mode = TOOL_ERASE; write = 1'b0; end
+				Fill: begin tool_mode = TOOL_FILL; write = 1'b0; end
+        endcase
+    end
+
+    always @(posedge CLOCK_50)
+        if (!Resetn)
+            y_Q <= 4'b0;
+        else
+            y_Q <= Y_D;
+	
+/********************************************************************************/
+/*                            	  Fill Logic		                               */
+/********************************************************************************/
+	reg start_fill;
+	reg [9:0]  fill_x;
+	reg [8:0]  fill_y;
+	
+	wire cursor_in_drawable = (cursor_x > DRAW_X_MIN) && (cursor_y > DRAW_Y_MIN) && (cursor_y < DRAW_Y_MAX);
+	wire request_fill = (tool_mode == TOOL_FILL) && go && cursor_in_drawable;
+	
+	reg request_fill_sync;     // sync-ed request
+	reg request_fill_prev;
+
+	always @(posedge CLOCK_50 or negedge Resetn) begin
+		 if (!Resetn) begin
+			  request_fill_sync <= 1'b0;
+			  request_fill_prev <= 1'b0;
+			  start_fill <= 1'b0;
+			  fill_x <= DRAW_X_MIN;
+			  fill_y <= DRAW_Y_MIN;
+		 end else begin
+			  //make sure fill request only happens once
+			  request_fill_prev <= request_fill;
+			  if (request_fill && !request_fill_prev)
+					request_fill_sync <= 1'b1;
+
+			  //start filling on sync request and if we are not already filling
+			  if (request_fill_sync && !start_fill) begin
+					start_fill <= 1'b1;
+					fill_x <= DRAW_X_MIN;
+					fill_y <= DRAW_Y_MIN;
+					request_fill_sync <= 1'b0; //handled request so set to 0
+			  end else if (start_fill) begin
+					if (fill_x < DRAW_X_MAX) begin
+						 fill_x <= fill_x + 1;
+					end else begin
+						 fill_x <= DRAW_X_MIN;
+						 if (fill_y < DRAW_Y_MAX) begin
+							  fill_y <= fill_y + 1;
+						 end else begin
+							  //done filling
+							  start_fill <= 1'b0;
+						 end
+					end
+			  end
+		 end
+	end
+	
+/********************************************************************************/
+/*                                Reset Sceen                                   */
+/********************************************************************************/	
+	 
+	reg [18:0] bg_addr;
+	reg bg_loading;
+	wire [8:0] bg_pixel;
+	
+	/*Toolbar ROM*/
+	wire [8:0] toolbar_pixel;
+	reg [15:0] toolbar_addr;
+	
+	toolbar_rom (
+	.address(toolbar_addr),
+	.clock(CLOCK_50),
+	.q(toolbar_pixel));
+	
+	
+	//background FSM
+	reg write_bg;
+	reg [9:0] bg_x;
+	reg [9:0] bg_y;
+	reg [8:0] bg_colour;
+	reg bg_fill;
+	
+	always @(posedge CLOCK_50) begin
+		if (!Resetn) begin
+			//on reset begin background loading
+			bg_loading <= 1;
+			bg_addr <= 0;
+			write_bg <= 0;
+			toolbar_addr <= 0;
+		end
+		else if (bg_loading) begin
+			write_bg <= 1;
+			
+			bg_x <= bg_addr % 640;
+			bg_y <= bg_addr / 640;
+			
+			//toolbar
+			if(bg_y < toolbarY) begin
+				bg_colour <= toolbar_pixel;
+				toolbar_addr <= bg_y * 640 + bg_x;
+			end
+			else
+				bg_colour <= 9'b111111111;
+				
+			bg_addr <= bg_addr+1;
+			
+			if(bg_addr == 640*480 - 1) begin
+				bg_loading <= 0;
+				write_bg <= 0;
+			end
+		end
+	end
+	
+/********************************************************************************/
+/*                               Cursor Drawing                                 */
+/********************************************************************************/	
+	//current postions
+	wire [9:0] ch_x = cursor_x;
+	wire [9:0] ch_y = 10'd475;
+
+	wire [9:0] cv_x = 10'd5;
+	wire [9:0] cv_y = cursor_y;
+	
+	//past postions
+	reg [9:0] ch_x_last, ch_y_last;
+	reg [9:0] cv_x_last, cv_y_last;
+	
+	
+	always @(posedge CLOCK_50) begin
+		 ch_x_last <= ch_x;
+		 ch_y_last <= ch_y;
+
+		 cv_x_last <= cv_x;
+		 cv_y_last <= cv_y;
+	end
+	
+	//used to check if we need to erase old cursor
+	wire in_ch_old = (VGA_X >= ch_x_last && VGA_X < ch_x_last + 9 &&
+                  VGA_Y >= ch_y_last && VGA_Y < ch_y_last + 9);
+
+	wire in_cv_old = (VGA_X >= cv_x_last && VGA_X < cv_x_last + 9 &&
+                  VGA_Y >= cv_y_last && VGA_Y < cv_y_last + 9);
+						
+	//used to check if we should draw the cursor
+	wire in_ch = (VGA_X >= ch_x && VGA_X < ch_x + CURSOR_SIZE &&
+              VGA_Y >= ch_y && VGA_Y < ch_y + CURSOR_SIZE);
+
+	wire in_cv = (VGA_X >= cv_x && VGA_X < cv_x + CURSOR_SIZE &&
+              VGA_Y >= cv_y && VGA_Y < cv_y + CURSOR_SIZE);
+	
+	//will be used to access the memory for each cursor	
+	wire [6:0] ch_addr = (VGA_Y - ch_y) * 9 + (VGA_X - ch_x);
+
+	wire [6:0] cv_addr = (VGA_Y - cv_y) * 9 + (VGA_X - cv_x);
+	
+	wire [8:0] ch_color;
+	wire [8:0] cv_color;
+	
+	/*Cursor ROM*/
+	hcursor_rom ch (
+	.address(ch_addr),
+	.clock(CLOCK_50),
+	.q(ch_color));
+	
+	vcursor_rom cv(
+	.address(cv_addr),
+	.clock(CLOCK_50),
+	.q(cv_color));
+
+/********************************************************************************/
+/*                             Current Color Box                                */
+/********************************************************************************/	
+	//want to draw the current color every time the colors changes in a 9x9 box 
+	//at the bottom left corner of the screen
+	
+	reg [8:0] last_color;
+	reg color_changed;
+	
+	//update the last color
+	always @(posedge CLOCK_50) begin
+		 color_changed <= (color != last_color);
+		 last_color <= color;
+	end
+	
+	reg draw_colorbox;
+	reg [3:0] cb_x;
+	reg [3:0] cb_y;
+
+	always @(posedge CLOCK_50) begin
+		 if (!Resetn) begin
+			cb_x <= 0;
+			cb_y <= 0;
+			draw_colorbox <= 1;
+		 end
+		 if (color_changed)
+			  draw_colorbox <= 1;
+
+		 if (draw_colorbox) begin
+			  if (cb_y < 9) begin
+					if (cb_x < 9)
+						 cb_x <= cb_x + 1;
+					else begin
+						 cb_x <= 0;
+						 cb_y <= cb_y + 1;
+					end
+			  end else begin
+					draw_colorbox <= 0;
+					cb_x <= 0;
+					cb_y <= 0;
+			  end
+		 end
+	end
+	
+	wire colorbox_write = draw_colorbox && (VGA_X == cb_draw_x) && (VGA_Y == cb_draw_y);
+
+	wire [8:0] cb_draw_x = cb_x;              // 0–8
+	wire [8:0] cb_draw_y = 471 + cb_y;        // 471–479
+	
+	wire in_colorbox_draw = (VGA_X >= 0 && VGA_X < 9 && VGA_Y >= 471 && VGA_Y < 480);
+	
+/********************************************************************************/
+/*                                  VGA Adapter                                 */
+/********************************************************************************/
+	 wire [9:0] VGA_X = 
+		bg_loading ? bg_x : 
+		start_fill ? fill_x :
+		(X - (size >> 1) + XC);
+	 
+	 wire [8:0] VGA_Y = 
+		bg_loading ? bg_y : 
+		start_fill ? fill_y :
+		(Y - (size >> 1) + YC);
+	 
+	 
+	 wire [8:0] final_color = 
+				in_colorbox_draw ? color :
+				in_ch_old ? 9'b111111111 :
+				in_cv_old ? 9'b111111111 :
+				in_ch ? ch_color : 
+				in_cv ? cv_color :
+				bg_loading ? bg_colour :
+				start_fill ? color :
+				(tool_mode == TOOL_ERASE) ? 9'b111111111 : color;
+				
+	wire cursor_write = in_ch_old || in_cv_old || in_ch || in_cv ;
+	
+	wire vga_write = 
+				bg_loading ? write_bg : //background reset
+				colorbox_write ? 1'b1 : //color updated
+				cursor_write ? 1'b1 : //cursor draw
+				start_fill ? 1'b1 :   //filling 
+				write;               //FSM drawing
+	 
+    vga_adapter VGA (
+        .resetn(Resetn),
+        .clock(CLOCK_50),
+        .color(final_color),
+        .x(VGA_X),
+        .y(VGA_Y),
+        .write(vga_write),
+        .VGA_R(VGA_R),
+        .VGA_G(VGA_G),
+        .VGA_B(VGA_B),
+        .VGA_HS(VGA_HS),
+        .VGA_VS(VGA_VS),
+        .VGA_BLANK_N(VGA_BLANK_N),
+        .VGA_SYNC_N(VGA_SYNC_N),
+        .VGA_CLK(VGA_CLK));
+
+endmodule
+
+/********************************************************************************/
+/*                                  Register                                    */
+/********************************************************************************/ 
+
+module regn(R, Resetn, E, Clock, Q);
+    parameter n = 8;
+    input [n-1:0] R;
+    input Resetn, E, Clock;
+    output reg [n-1:0] Q;
+
+    always @(posedge Clock)
+        if (!Resetn)
+            Q <= 0;
+        else if (E)
+            Q <= R;
+endmodule
+
+/********************************************************************************/
+/*                                  Up Counter                                  */
+/********************************************************************************/
+	 
+// n-bit up-counter with reset, load, and enable
+module Up_count (R, Clock, Resetn, L, E, Q);
+    parameter n = 8;
+    input [n-1:0] R;
+    input Clock, Resetn, E, L;
+    output reg [n-1:0] Q;
+
+    always @ (posedge Clock)
+        if (Resetn == 0)
+            Q <= {n{1'b0}};
+        else if (L == 1)
+            Q <= R;
+        else if (E)
+            Q <= Q + 1'b1;
+endmodule
+
+/********************************************************************************/
+/*                                  Hex Decoder                                 */
+/********************************************************************************/
+	 
+module hex7seg (hex, display);
+    input [3:0] hex;
+    output [6:0] display;
+
+    reg [6:0] display;
+    always @ (hex)
+        case (hex)
+            4'h0: display = 7'b1000000;
+            4'h1: display = 7'b1111001;
+            4'h2: display = 7'b0100100;
+            4'h3: display = 7'b0110000;
+            4'h4: display = 7'b0011001;
+            4'h5: display = 7'b0010010;
+            4'h6: display = 7'b0000010;
+            4'h7: display = 7'b1111000;
+            4'h8: display = 7'b0000000;
+            4'h9: display = 7'b0011000;
+            4'hA: display = 7'b0001000;
+            4'hB: display = 7'b0000011;
+            4'hC: display = 7'b1000110;
+            4'hD: display = 7'b0100001;
+            4'hE: display = 7'b0000110;
+            4'hF: display = 7'b0001110;
+        endcase
+endmodule
+
+
+

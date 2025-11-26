@@ -1,0 +1,197 @@
+module PS2_Demo (
+	// Inputs
+	CLOCK_50,
+	KEY,
+
+	// Bidirectionals
+	PS2_CLK,
+	PS2_DAT,
+	
+	// Outputs
+	HEX0,
+	HEX1,
+	HEX2,
+	HEX3,
+	HEX4,
+	HEX5,
+	HEX6,
+	HEX7,
+	LEDR
+);
+
+/*****************************************************************************
+ *                           Parameter Declarations                          *
+ *****************************************************************************/
+
+
+/*****************************************************************************
+ *                             Port Declarations                             *
+ *****************************************************************************/
+
+// Inputs
+input				CLOCK_50;
+input		[3:0]	KEY;
+
+// Bidirectionals
+inout				PS2_CLK;
+inout				PS2_DAT;
+
+// Outputs
+output		[6:0]	HEX0;
+output		[6:0]	HEX1;
+output		[6:0]	HEX2;
+output		[6:0]	HEX3;
+output		[6:0]	HEX4;
+output		[6:0]	HEX5;
+output		[6:0]	HEX6;
+output		[6:0]	HEX7;
+output  	[9:0] 	LEDR; //added
+
+/*****************************************************************************
+ *                 Internal Wires and Registers Declarations                 *
+ *****************************************************************************/
+
+// Internal Wires
+wire		[7:0]	ps2_key_data;
+wire				ps2_key_pressed;
+
+// Internal Registers
+reg[7:0]	last_data_received;
+reg [7:0] mouse_packet [2:0];
+reg[1:0] byte_count;
+reg signed [7:0] x_movement; //needs to be signed since x can be signed
+reg signed [7:0] y_movement; //same as x
+reg right_button;
+reg left_button;
+reg middle_button;
+
+reg signed	[9:0]	cursor_x;
+reg signed	[9:0]	cursor_y;
+
+
+// State Machine Registers
+
+/*****************************************************************************
+ *                         Finite State Machine(s)                           *
+ *****************************************************************************/
+
+
+/*****************************************************************************
+ *                             Sequential Logic                              *
+ *****************************************************************************/
+ 
+always @(posedge CLOCK_50)
+begin
+	if (KEY[0] == 1'b0) begin
+		byte_count <= 0;
+		//adapted below
+		x_movement <= 8'sh00; //sh for signed
+		y_movement <= 8'sh00; //sh for signed
+		right_button <= 1'b0;
+		left_button <= 1'b0;
+		middle_button <= 1'b0;
+		cursor_x	<= 10'sd00;
+		cursor_y	<= 10'sd00;
+	end else if (ps2_key_pressed) begin
+		mouse_packet[byte_count] <= ps2_key_data;
+			if(byte_count == 1 & mouse_packet[0][7] != 1'b1 & mouse_packet[0][6] != 1'b1) begin
+				right_button <= mouse_packet[0][1]; //right button is byte 0, bit 1
+				left_button <= mouse_packet[0][0]; //left button is byte 0, bit 0
+				middle_button <= mouse_packet[0][2]; //middle button is byte 0, bit 2
+			end
+			if (byte_count == 3) begin //now have received all the mouse packet
+				if(mouse_packet[0][3] == 1'b1) begin
+					//if(mouse_packet[0][6] == 1'b1 & mouse_packet[0][7] == 1'b1) begin //overflow detectors
+					if(mouse_packet[0][6] != 1'b1)begin //x overflow only update y
+						
+						y_movement <= $signed(mouse_packet[2]); //y is stored in byte 2 $signed type casts to treat it as a signed when its not
+						
+						cursor_y	<= cursor_y - y_movement; 
+						
+						if (cursor_y < 0) cursor_y <= 0;
+						else if (cursor_y > 479) cursor_y <= 479; // for 640x480 resolution
+						
+					end
+					if(mouse_packet[0][7] != 1'b1) begin //y overflow only update x
+						
+						x_movement <= $signed(mouse_packet[1]); //x is stored in byte 1		
+
+						cursor_x	<= cursor_x + x_movement;
+
+						
+						if (cursor_x < 0) cursor_x <= 0;
+						else if (cursor_x > 639) cursor_x <= 639; // for 640x480 resolution
+					end
+					//end
+				end
+			byte_count <= 0;
+		end
+			else begin
+				byte_count <= byte_count + 2'b01;
+			end
+		end
+end
+
+/*****************************************************************************
+ *                            Combinational Logic                            *
+ *****************************************************************************/
+/*
+assign HEX2 = 7'h7F;
+assign HEX3 = 7'h7F;
+*/
+assign HEX4 = 7'h7F;
+assign HEX5 = 7'h7F;
+assign HEX6 = 7'h7F;
+assign HEX7 = 7'h7F;
+
+/*****************************************************************************
+ *                              Internal Modules                             *
+ *****************************************************************************/
+
+PS2_Controller #(.INITIALIZE_MOUSE(1)) PS2 (
+	// Inputs
+	.CLOCK_50				(CLOCK_50),
+	.reset				(~KEY[0]),
+
+	// Bidirectionals
+	.PS2_CLK			(PS2_CLK),
+ 	.PS2_DAT			(PS2_DAT),
+
+	// Outputs
+	.received_data		(ps2_key_data),
+	.received_data_en	(ps2_key_pressed)
+);
+
+Hexadecimal_To_Seven_Segment Segment0 (
+	.hex_number    	(cursor_x[3:0]),
+	.seven_seg_display	(HEX0)
+);
+
+Hexadecimal_To_Seven_Segment Segment1 (
+	.hex_number    	(cursor_x[7:4]),
+	.seven_seg_display	(HEX1)
+);
+
+// Display cursor_y on HEX2 and HEX3
+Hexadecimal_To_Seven_Segment Segment2 (
+	.hex_number    	(cursor_y[3:0]),
+	.seven_seg_display	(HEX2)
+);
+
+Hexadecimal_To_Seven_Segment Segment3 (
+	.hex_number    	(cursor_y[7:4]),
+	.seven_seg_display	(HEX3)
+);
+
+assign LEDR[0] = left_button;
+assign LEDR[1] = right_button;
+assign LEDR[2] = middle_button;
+
+assign LEDR[9:6] = 9'b0;
+
+endmodule
+
+
+
+
+
