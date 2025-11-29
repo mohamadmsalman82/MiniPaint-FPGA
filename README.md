@@ -101,45 +101,6 @@ All modules work in sync to update the framebuffer using pixel-level write contr
 - Cursor intersection preview  
 :contentReference[oaicite:4]{index=4}
 
----
-
-## 👥 Contributors  
-
-### **Mohamad Salman**  
-- VGA rendering & graphics pipeline  
-- Background + toolbar MIF design  
-- Mouse input & drawing-memory interfacing  
-- FSM for tool/color selection & toolbar lockout  
-- Size adjustment logic  
-- Rectangle tool implementation  
-- Full-system integration & debugging  
-:contentReference[oaicite:5]{index=5}
-
-### **Tawfiq Shnoudeh**  
-- Full PS/2 mouse controller  
-- Movement overflow handling  
-- Left/middle/right click detection  
-- FSM rules for drawing restrictions  
-- Key-confirm logic  
-- Screen reset & background preservation  
-- Color preview + cursor guides  
-- Bucket fill implementation  
-:contentReference[oaicite:6]{index=6}
-
----
-
-## 📂 Repository Structure (Suggested)
-
--> /src
--> /vga
--> /ps2
--> /tools
--> /fsm
--> /resources
--> background.mif
--> toolbar.mif
--> /docs
--> README.md
 
 
 ## Adapted files from ECE241 F2025 
