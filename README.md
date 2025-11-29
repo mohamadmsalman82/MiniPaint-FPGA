@@ -130,23 +130,22 @@ All modules work in sync to update the framebuffer using pixel-level write contr
 
 ## 📂 Repository Structure (Suggested)
 
-/src
-/vga
-/ps2
-/tools
-/fsm
-/resources
-background.mif
-toolbar.mif
-/docs
-presentation.pdf
-README.md
+-> /src
+-> /vga
+-> /ps2
+-> /tools
+-> /fsm
+-> /resources
+-> background.mif
+-> toolbar.mif
+-> /docs
+-> README.md
 
 
 ## Adapted files from ECE241 F2025 
-vga_adapter.v
-vga_controller.v
-vga_pll.v
-vga_address_translator.v
-Altera_UP_PS2_Command_Out.v
-Altera_UP_PS2_Data_In.v
+- vga_adapter.v
+- vga_controller.v
+- vga_pll.v
+- vga_address_translator.v
+- Altera_UP_PS2_Command_Out.v
+- Altera_UP_PS2_Data_In.v
