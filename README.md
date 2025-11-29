@@ -1,7 +1,7 @@
  🎨 MINI Paint — FPGA Drawing Application  
 *A hardware-accelerated MS-Paint–style drawing tool for the DE1-SoC FPGA*  
 _By Mohamad Salman & Tawfiq Shnoudeh_  
-:contentReference[oaicite:0]{index=0}
+
 
 ![Build](https://img.shields.io/badge/Hardware-FPGA-blue?style=flat-square)
 ![VGA](https://img.shields.io/badge/Display-640x480%20VGA-purple?style=flat-square)
@@ -141,3 +141,12 @@ toolbar.mif
 /docs
 presentation.pdf
 README.md
+
+
+## Adapted files from ECE241 F2025 
+vga_adapter.v
+vga_controller.v
+vga_pll.v
+vga_address_translator.v
+Altera_UP_PS2_Command_Out.v
+Altera_UP_PS2_Data_In.v
